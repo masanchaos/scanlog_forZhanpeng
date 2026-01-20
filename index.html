@@ -122,6 +122,18 @@
     <div id="printContainer"></div>
 
     <script>
+        <button onclick="testDailyReset()" style="background-color: purple; color: white;">🔮 模擬跨日測試</button>
+            // 加在原本的 <script> 區域內
+        function testDailyReset() {
+            if (logs.length === 0) {
+                alert("請先掃描幾筆資料再測試，否則不會觸發下載。");
+                return;
+            }
+            // 強制把最後日期改成昨天
+            localStorage.setItem('lastActiveDate', '2000-01-01');
+            // 重新整理頁面，觸發 checkAutoArchive()
+            location.reload();
+        }
         // ==========================================
         // V9.1 修正版：防當機啟動與 Enter 修復
         // ==========================================
@@ -371,3 +383,4 @@
     </script>
 </body>
 </html>
+
