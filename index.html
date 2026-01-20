@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>物流掃描系統 (V9.2 強警報修復版)</title>
+    <title>物流掃描系統 (V9.3 警報完美版)</title>
     <style>
         /* ================= 一般介面 ================= */
         body { font-family: "Microsoft JhengHei", sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; text-align: center; color: #333; transition: background-color 0.1s;}
@@ -34,7 +34,7 @@
 
         #printContainer { display: none; }
 
-        /* ================= 🚨 強力警報樣式 (修復與加強) ================= */
+        /* ================= 🚨 強力警報樣式 ================= */
         #errorOverlay {
             display: none; /* 預設隱藏 */
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -46,7 +46,7 @@
         #errorOverlay p { font-size: 40px; margin: 10px 0; font-weight: bold; }
         #errorDetail { font-size: 30px; color: #ffeb3b; margin-top: 10px; white-space: pre-wrap; }
 
-        /* 背景閃爍動畫 (加強警示感) */
+        /* 背景閃爍動畫 */
         @keyframes bg-flash {
             0% { background-color: #fff; } 50% { background-color: #ffcccc; } 100% { background-color: #fff; }
         }
@@ -98,7 +98,7 @@
         <p style="font-size: 20px; margin-top: 30px;">(點擊畫面或按 Enter 繼續)</p>
     </div>
 
-    <h2 class="no-print">📦 物流掃描系統 (V9.2)</h2>
+    <h2 class="no-print">📦 物流掃描系統 (V9.3)</h2>
     <div class="no-print" style="color: #666; font-size: 14px; margin-bottom: 10px;">
         狀態：<span id="dateStatus">初始化中...</span>
     </div>
@@ -160,10 +160,16 @@
             return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
         }
 
-        // 監聽 Enter
+        // ==========================================
+        // 核心修復：防止 Enter 事件冒泡 (Stop Propagation)
+        // ==========================================
         inputField.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' || e.keyCode === 13) {
+                // 1. 阻止預設行為
                 e.preventDefault(); 
+                // 2. 關鍵修復：阻止事件冒泡，防止觸發 document 上的 dismissError
+                e.stopPropagation();
+
                 let code = inputField.value.trim();
                 if (!code) return; 
 
@@ -197,38 +203,32 @@
             if(errorOverlay.style.display !== 'flex') setTimeout(() => inputField.focus(), 100);
         });
 
-        // ==========================================
-        // 核心：警報觸發 (修復順序)
-        // ==========================================
+        // 警報觸發
         function triggerError(title, detail) {
-            // 1. 最優先：先顯示視覺警報 (避免音效當機導致畫面沒反應)
             if(errorOverlay) errorOverlay.style.display = 'flex';
             if(errorMsg) errorMsg.textContent = title;
             if(errorDetail) errorDetail.textContent = detail || "";
-            
-            // 2. 增加背景閃爍效果
             document.body.classList.add('body-error');
 
-            // 3. 嘗試播放聲音 (包在 try-catch 中)
-            try {
-                playErrorSound();
-            } catch(e) {
-                console.error("音效播放失敗 (不影響警報顯示)", e);
-            }
+            try { playErrorSound(); } catch(e) {}
             
             inputField.blur();
         }
 
         function dismissError() {
             if(errorOverlay) errorOverlay.style.display = 'none';
-            document.body.classList.remove('body-error'); // 移除閃爍
+            document.body.classList.remove('body-error');
             inputField.value = ''; 
             inputField.focus();    
         }
 
+        // 全域監聽 (用來解除警報)
         document.addEventListener('keydown', function(e){
-            if(e.key === 'Enter' && errorOverlay.style.display === 'flex') {
-                e.preventDefault(); dismissError();
+            // 只有當警報正在顯示時，按 Enter 才會解除
+            if((e.key === 'Enter' || e.keyCode === 13) && errorOverlay.style.display === 'flex') {
+                e.preventDefault(); 
+                e.stopPropagation(); // 同樣防止冒泡，雖然這裡是 document 層級了
+                dismissError();
             }
         });
 
@@ -249,9 +249,7 @@
             oscillator.stop(now + 0.9);
         }
 
-        // ==========================================
-        // 其他功能
-        // ==========================================
+        // 其他功能保持不變
         function checkAutoArchive() {
             const today = getTodayStr();
             if(dateStatus) dateStatus.textContent = `作業日期：${today}`;
