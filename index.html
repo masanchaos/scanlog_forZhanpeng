@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>物流掃描系統 (V9.1 正式版)</title>
+    <title>物流掃描系統 (V9.2 強警報修復版)</title>
     <style>
-        /* ================= 一般介面 (螢幕顯示) ================= */
-        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; text-align: center; color: #333; }
+        /* ================= 一般介面 ================= */
+        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; text-align: center; color: #333; transition: background-color 0.1s;}
         
         /* 輸入框 */
         #barcodeInput { 
@@ -24,33 +24,39 @@
         .btn-clear { background-color: #6c757d; }
         button:hover { opacity: 0.9; transform: translateY(-1px); }
 
-        /* 單筆刪除按鈕 */
         .btn-del-single { background-color: #dc3545; color: white; padding: 5px 10px; font-size: 14px; border-radius: 3px; cursor: pointer; border: none; }
 
-        /* 螢幕表格 */
+        /* 表格 */
         #screenTable { width: 100%; border-collapse: collapse; margin-top: 10px; }
         #screenTable th, #screenTable td { border: 1px solid #ddd; padding: 10px; text-align: center; font-size: 18px; vertical-align: middle; }
         #screenTable th { background-color: #f8f9fa; }
         .col-time-screen { color: #555; font-family: monospace; }
 
-        /* 隱藏列印容器 */
         #printContainer { display: none; }
 
-        /* ================= 🚨 警報樣式 ================= */
+        /* ================= 🚨 強力警報樣式 (修復與加強) ================= */
         #errorOverlay {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(255, 0, 0, 0.95); z-index: 9999;
+            display: none; /* 預設隱藏 */
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(255, 0, 0, 0.95); /* 深紅不透明背景 */
+            z-index: 99999; /* 確保在最上層 */
             justify-content: center; align-items: center; flex-direction: column; color: white; text-align: center;
         }
         #errorOverlay h1 { font-size: 80px; margin: 0; text-shadow: 2px 2px 10px black; }
         #errorOverlay p { font-size: 40px; margin: 10px 0; font-weight: bold; }
         #errorDetail { font-size: 30px; color: #ffeb3b; margin-top: 10px; white-space: pre-wrap; }
 
+        /* 背景閃爍動畫 (加強警示感) */
+        @keyframes bg-flash {
+            0% { background-color: #fff; } 50% { background-color: #ffcccc; } 100% { background-color: #fff; }
+        }
+        .body-error { animation: bg-flash 0.2s infinite; }
+
         /* ================= 🖨️ 列印共用樣式 ================= */
         @media print {
             .no-print, #barcodeInput, .controls, #countDisplay, #errorOverlay, h2, #screenTable { display: none !important; }
             #printContainer { display: block !important; }
-            body { margin: 0; padding: 0; background: white; color: black; }
+            body { margin: 0; padding: 0; background: white; color: black; animation: none; }
         }
 
         /* A4 模式 */
@@ -92,7 +98,7 @@
         <p style="font-size: 20px; margin-top: 30px;">(點擊畫面或按 Enter 繼續)</p>
     </div>
 
-    <h2 class="no-print">📦 物流掃描系統 (V9.1)</h2>
+    <h2 class="no-print">📦 物流掃描系統 (V9.2)</h2>
     <div class="no-print" style="color: #666; font-size: 14px; margin-bottom: 10px;">
         狀態：<span id="dateStatus">初始化中...</span>
     </div>
@@ -105,7 +111,6 @@
         <button onclick="printReceipt('A4')" class="btn-print-a4">📄 列印 A4</button>
         <button onclick="printReceipt('Thermal')" class="btn-print-thermal">🏷️ 列印 100x150</button>
         <button onclick="clearLogs()" class="btn-clear">🗑️ 清空全部</button>
-        <button onclick="testDailyReset()" style="background-color: purple; color: white;">🔮 模擬跨日測試</button>
     </div>
 
     <table id="screenTable" class="no-print">
@@ -123,15 +128,9 @@
     <div id="printContainer"></div>
 
     <script>
-       
-        // ==========================================
-        // V9.1 修正版：防當機啟動與 Enter 修復
-        // ==========================================
-        
         let logs = [];
         let lastActiveDate = "";
         
-        // 取得 DOM 元素
         const inputField = document.getElementById('barcodeInput');
         const screenTableBody = document.querySelector('#screenTable tbody');
         const countDisplay = document.getElementById('countDisplay');
@@ -142,32 +141,18 @@
         const printContainer = document.getElementById('printContainer');
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-        // 2. 安全啟動 (Try-Catch 包覆)
+        // 啟動保護
         try {
             logs = JSON.parse(localStorage.getItem('scanLogs')) || [];
             lastActiveDate = localStorage.getItem('lastActiveDate') || getTodayStr();
-            
             checkAutoArchive(); 
             renderScreenTable();
             setInterval(checkAutoArchive, 60000);
-            
-            console.log("系統啟動成功！");
+            console.log("系統啟動成功");
         } catch (e) {
             console.error("啟動失敗:", e);
-            if(dateStatus) dateStatus.textContent = "系統錯誤 (本機檔案權限不足)";
-            alert("請注意：直接開啟 HTML 檔案會導致瀏覽器封鎖資料庫權限。\n\n請將檔案上傳至 GitHub Pages，\n或使用 VS Code Live Server 開啟才能正常使用。");
-        }
-
-        // 加在原本的 <script> 區域內
-        function testDailyReset() {
-            if (logs.length === 0) {
-                alert("請先掃描幾筆資料再測試，否則不會觸發下載。");
-                return;
-            }
-            // 強制把最後日期改成昨天
-            localStorage.setItem('lastActiveDate', '2000-01-01');
-            // 重新整理頁面，觸發 checkAutoArchive()
-            location.reload();
+            if(dateStatus) dateStatus.textContent = "系統錯誤 (LocalStorage 權限不足)";
+            alert("請務必使用 GitHub Pages 或 Live Server 開啟以確保功能正常。");
         }
 
         function getTodayStr() {
@@ -175,23 +160,17 @@
             return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
         }
 
-        // ==========================================
-        // 核心修復：改用 keydown 監聽 Enter
-        // ==========================================
+        // 監聽 Enter
         inputField.addEventListener('keydown', function (e) {
-            // 只有按下 Enter (keyCode 13) 才觸發
             if (e.key === 'Enter' || e.keyCode === 13) {
                 e.preventDefault(); 
-                
                 let code = inputField.value.trim();
                 if (!code) return; 
 
-                // 自動轉大寫
                 code = code.toUpperCase();
 
-                // 驗證邏輯
-                const validFormat = /^[A-Z0-9]+$/;
-                if (!validFormat.test(code)) {
+                // 檢核
+                if (!/^[A-Z0-9]+$/.test(code)) {
                     triggerError("格式錯誤！", `非法符號 (僅限英數)`);
                     inputField.value = ''; return;
                 }
@@ -199,8 +178,7 @@
                     triggerError("編碼過長！", `輸入 ${code.length} 碼 (上限16)`);
                     inputField.value = ''; return;
                 }
-                const isDuplicate = logs.some(log => log.code === code);
-                if (isDuplicate) {
+                if (logs.some(log => log.code === code)) {
                     triggerError("重複掃描！", `編碼: ${code} 已存在`);
                     inputField.value = ''; return;
                 }
@@ -210,7 +188,6 @@
             }
         });
 
-        // 保持 Focus
         document.addEventListener('click', (e) => { 
             if (e.target.classList.contains('btn-del-single')) return;
             if (document.visibilityState === 'visible' && errorOverlay.style.display !== 'flex') inputField.focus(); 
@@ -221,38 +198,32 @@
         });
 
         // ==========================================
-        // 其他邏輯
+        // 核心：警報觸發 (修復順序)
         // ==========================================
-
-        function checkAutoArchive() {
-            const today = getTodayStr();
-            if(dateStatus) dateStatus.textContent = `作業日期：${today}`;
-
-            if (lastActiveDate !== today) {
-                console.log("跨日偵測：執行歸檔");
-                if (logs.length > 0) {
-                    downloadTxt(lastActiveDate);
-                    logs = [];
-                    saveToStorage();
-                    renderScreenTable();
-                    alert(`偵測到換日！已自動備份 ${lastActiveDate} 的紀錄並清空。`);
-                }
-                lastActiveDate = today;
-                try { localStorage.setItem('lastActiveDate', lastActiveDate); } catch(e){}
-            }
-        }
-
         function triggerError(title, detail) {
-            errorMsg.textContent = title;
-            errorDetail.textContent = detail || "";
-            playErrorSound();
-            errorOverlay.style.display = 'flex';
+            // 1. 最優先：先顯示視覺警報 (避免音效當機導致畫面沒反應)
+            if(errorOverlay) errorOverlay.style.display = 'flex';
+            if(errorMsg) errorMsg.textContent = title;
+            if(errorDetail) errorDetail.textContent = detail || "";
+            
+            // 2. 增加背景閃爍效果
+            document.body.classList.add('body-error');
+
+            // 3. 嘗試播放聲音 (包在 try-catch 中)
+            try {
+                playErrorSound();
+            } catch(e) {
+                console.error("音效播放失敗 (不影響警報顯示)", e);
+            }
+            
             inputField.blur();
         }
 
         function dismissError() {
-            errorOverlay.style.display = 'none';
-            inputField.value = ''; inputField.focus();    
+            if(errorOverlay) errorOverlay.style.display = 'none';
+            document.body.classList.remove('body-error'); // 移除閃爍
+            inputField.value = ''; 
+            inputField.focus();    
         }
 
         document.addEventListener('keydown', function(e){
@@ -278,24 +249,36 @@
             oscillator.stop(now + 0.9);
         }
 
+        // ==========================================
+        // 其他功能
+        // ==========================================
+        function checkAutoArchive() {
+            const today = getTodayStr();
+            if(dateStatus) dateStatus.textContent = `作業日期：${today}`;
+
+            if (lastActiveDate !== today) {
+                if (logs.length > 0) {
+                    downloadTxt(lastActiveDate);
+                    logs = []; saveToStorage(); renderScreenTable();
+                    alert(`偵測到換日！已自動備份 ${lastActiveDate} 的紀錄並清空。`);
+                }
+                lastActiveDate = today;
+                try { localStorage.setItem('lastActiveDate', lastActiveDate); } catch(e){}
+            }
+        }
+
         function addLog(code) {
             const now = new Date();
             const dateStr = getTodayStr();
             const timeStr = String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0') + ":" + String(now.getSeconds()).padStart(2, '0');
             logs.unshift({ date: dateStr, time: timeStr, code: code });
-            saveToStorage();
-            renderScreenTable();
+            saveToStorage(); renderScreenTable();
         }
 
         function deleteLog(index) {
             if (confirm(`確定刪除 ${logs[index].code} ?`)) {
-                logs.splice(index, 1);
-                saveToStorage();
-                renderScreenTable();
-                inputField.focus();
-            } else {
-                inputField.focus();
-            }
+                logs.splice(index, 1); saveToStorage(); renderScreenTable(); inputField.focus();
+            } else { inputField.focus(); }
         }
 
         function renderScreenTable() {
@@ -306,10 +289,8 @@
                 let timeCell = row.insertCell(1); timeCell.textContent = log.time; timeCell.className = "col-time-screen";
                 let codeCell = row.insertCell(2); codeCell.textContent = log.code; codeCell.style.fontFamily = "monospace"; codeCell.style.fontWeight = "bold";
                 let actionCell = row.insertCell(3);
-                let delBtn = document.createElement('button');
-                delBtn.textContent = '刪除'; delBtn.className = 'btn-del-single';
-                delBtn.onclick = function() { deleteLog(index); };
-                actionCell.appendChild(delBtn);
+                let delBtn = document.createElement('button'); delBtn.textContent = '刪除'; delBtn.className = 'btn-del-single';
+                delBtn.onclick = function() { deleteLog(index); }; actionCell.appendChild(delBtn);
             });
             countDisplay.textContent = `目前筆數：${logs.length}`;
         }
@@ -322,9 +303,7 @@
             const link = document.createElement('a');
             link.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }));
             link.download = `Log_${dateToUse}.txt`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
         }
 
         function clearLogs() {
@@ -334,12 +313,7 @@
         }
 
         function saveToStorage() {
-            try {
-                localStorage.setItem('scanLogs', JSON.stringify(logs));
-                localStorage.setItem('lastActiveDate', lastActiveDate); 
-            } catch (e) {
-                console.error("儲存失敗:", e);
-            }
+            try { localStorage.setItem('scanLogs', JSON.stringify(logs)); localStorage.setItem('lastActiveDate', lastActiveDate); } catch (e) {}
         }
 
         function printReceipt(mode) {
@@ -354,15 +328,12 @@
                 const ITEMS_PER_PAGE = 12;
                 const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
                 for (let i = 0; i < totalPages; i++) {
-                    const pageNum = i + 1;
-                    const isLastPage = (pageNum === totalPages);
+                    const pageNum = i + 1; const isLastPage = (pageNum === totalPages);
                     const pageData = logs.slice(i * ITEMS_PER_PAGE, (i + 1) * ITEMS_PER_PAGE);
                     const pageDiv = document.createElement('div'); pageDiv.className = 'print-page';
                     
                     let tableHTML = `<table><thead><tr><th class="col-date">日期</th><th>貨號 / 編碼</th><th class="print-only sign-col" style="width: 50px;">簽收</th></tr></thead><tbody>`;
-                    pageData.forEach(log => {
-                        tableHTML += `<tr><td class="col-date">${log.date}</td><td style="font-family: monospace; font-weight: bold;">${log.code}</td><td class="sign-col"></td></tr>`;
-                    });
+                    pageData.forEach(log => { tableHTML += `<tr><td class="col-date">${log.date}</td><td style="font-family: monospace; font-weight: bold;">${log.code}</td><td class="sign-col"></td></tr>`; });
                     tableHTML += `</tbody></table>`;
                     
                     let summaryHTML = isLastPage ? `<div class="final-summary"><div class="total-line">總計：${totalItems} 件</div><div class="signer-section">簽收人：____________________</div></div>` : '';
@@ -385,5 +356,3 @@
     </script>
 </body>
 </html>
-
-
