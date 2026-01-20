@@ -1,9 +1,131 @@
-<script>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>物流掃描系統 (V9.1 正式版)</title>
+    <style>
+        /* ================= 一般介面 (螢幕顯示) ================= */
+        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; text-align: center; color: #333; }
+        
+        /* 輸入框 */
+        #barcodeInput { 
+            width: 80%; padding: 15px; font-size: 30px; text-align: center; margin-bottom: 20px; 
+            border: 3px solid #333; border-radius: 5px; font-weight: bold; letter-spacing: 2px;
+            text-transform: uppercase; ime-mode: disabled; 
+        }
+
+        /* 按鈕群組 */
+        .controls { margin-bottom: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+        button { padding: 12px 20px; font-size: 16px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; color: white; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); }
+        .btn-dl { background-color: #28a745; }
+        .btn-print-a4 { background-color: #007bff; }
+        .btn-print-thermal { background-color: #ffc107; color: #000; }
+        .btn-clear { background-color: #6c757d; }
+        button:hover { opacity: 0.9; transform: translateY(-1px); }
+
+        /* 單筆刪除按鈕 */
+        .btn-del-single { background-color: #dc3545; color: white; padding: 5px 10px; font-size: 14px; border-radius: 3px; cursor: pointer; border: none; }
+
+        /* 螢幕表格 */
+        #screenTable { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        #screenTable th, #screenTable td { border: 1px solid #ddd; padding: 10px; text-align: center; font-size: 18px; vertical-align: middle; }
+        #screenTable th { background-color: #f8f9fa; }
+        .col-time-screen { color: #555; font-family: monospace; }
+
+        /* 隱藏列印容器 */
+        #printContainer { display: none; }
+
+        /* ================= 🚨 警報樣式 ================= */
+        #errorOverlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(255, 0, 0, 0.95); z-index: 9999;
+            justify-content: center; align-items: center; flex-direction: column; color: white; text-align: center;
+        }
+        #errorOverlay h1 { font-size: 80px; margin: 0; text-shadow: 2px 2px 10px black; }
+        #errorOverlay p { font-size: 40px; margin: 10px 0; font-weight: bold; }
+        #errorDetail { font-size: 30px; color: #ffeb3b; margin-top: 10px; white-space: pre-wrap; }
+
+        /* ================= 🖨️ 列印共用樣式 ================= */
+        @media print {
+            .no-print, #barcodeInput, .controls, #countDisplay, #errorOverlay, h2, #screenTable { display: none !important; }
+            #printContainer { display: block !important; }
+            body { margin: 0; padding: 0; background: white; color: black; }
+        }
+
+        /* A4 模式 */
+        @media print {
+            body:not(.thermal-mode) #printContainer { max-width: 100%; padding: 20px; }
+            body:not(.thermal-mode) .print-page { page-break-after: always; }
+            body:not(.thermal-mode) table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+            body:not(.thermal-mode) th, body:not(.thermal-mode) td { border: 1px solid #000; padding: 5px; text-align: center; }
+            body:not(.thermal-mode) .signer-section { text-align: right; margin-top: 40px; font-size: 14pt; font-weight: bold; }
+        }
+
+        /* 熱敏紙模式 (100x150mm) */
+        @media print {
+            body.thermal-mode { width: 100mm; margin: 0; }
+            body.thermal-mode .print-page {
+                width: 100mm; height: 149mm; margin: 0; padding: 2mm; box-sizing: border-box; 
+                overflow: hidden; position: relative; page-break-after: always; break-after: page;
+                display: flex; flex-direction: column;
+            }
+            body.thermal-mode .print-header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 5px; margin-bottom: 5px; flex-shrink: 0; }
+            body.thermal-mode .print-header h1 { font-size: 16pt; margin: 0; }
+            body.thermal-mode .print-info { font-size: 10pt; text-align: center; margin-top: 2px; }
+            body.thermal-mode table { font-size: 11pt; width: 100%; border-collapse: collapse; }
+            body.thermal-mode th, body.thermal-mode td { padding: 3px 2px; border: 1px solid #000; text-align: center; height: 7mm; }
+            body.thermal-mode .col-date, body.thermal-mode .col-time { display: none; } 
+            body.thermal-mode .page-footer { position: absolute; bottom: 5mm; left: 0; width: 100%; text-align: center; font-size: 9pt; }
+            body.thermal-mode .final-summary { margin-top: auto; margin-bottom: 10mm; border-top: 2px dashed #000; padding-top: 5px; }
+            body.thermal-mode .total-line { font-size: 14pt; font-weight: bold; text-align: center; margin-bottom: 10px; }
+            body.thermal-mode .signer-section { font-size: 12pt; font-weight: bold; text-align: center; border-top: 1px solid #ccc; padding-top: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="errorOverlay" onclick="dismissError()">
+        <h1>⚠️ 警告 ⚠️</h1>
+        <p id="errorMsg">錯誤訊息</p>
+        <div id="errorDetail"></div>
+        <p style="font-size: 20px; margin-top: 30px;">(點擊畫面或按 Enter 繼續)</p>
+    </div>
+
+    <h2 class="no-print">📦 物流掃描系統 (V9.1)</h2>
+    <div class="no-print" style="color: #666; font-size: 14px; margin-bottom: 10px;">
+        狀態：<span id="dateStatus">初始化中...</span>
+    </div>
+    
+    <input type="text" id="barcodeInput" placeholder="請掃描 (限英數, Max 16)..." autofocus autocomplete="off">
+    <div id="countDisplay" class="no-print" style="font-size: 20px; font-weight: bold; margin-bottom: 10px;">目前筆數：0</div>
+
+    <div class="controls no-print">
+        <button onclick="downloadTxt()" class="btn-dl">📥 手動下載 Log</button>
+        <button onclick="printReceipt('A4')" class="btn-print-a4">📄 列印 A4</button>
+        <button onclick="printReceipt('Thermal')" class="btn-print-thermal">🏷️ 列印 100x150</button>
+        <button onclick="clearLogs()" class="btn-clear">🗑️ 清空全部</button>
+    </div>
+
+    <table id="screenTable" class="no-print">
+        <thead>
+            <tr>
+                <th style="width: 20%">日期</th>
+                <th style="width: 20%">時間</th>
+                <th>貨號 / 編碼</th>
+                <th style="width: 15%">操作</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <div id="printContainer"></div>
+
+    <script>
         // ==========================================
         // V9.1 修正版：防當機啟動與 Enter 修復
         // ==========================================
         
-        // 1. 定義變數
         let logs = [];
         let lastActiveDate = "";
         
@@ -18,26 +140,22 @@
         const printContainer = document.getElementById('printContainer');
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-        // 2. 安全啟動 (Try-Catch 包覆，防止因為 LocalStorage 權限導致整頁壞掉)
+        // 2. 安全啟動 (Try-Catch 包覆)
         try {
             logs = JSON.parse(localStorage.getItem('scanLogs')) || [];
             lastActiveDate = localStorage.getItem('lastActiveDate') || getTodayStr();
             
-            // 啟動功能
             checkAutoArchive(); 
             renderScreenTable();
-            
-            // 設定定時檢查
             setInterval(checkAutoArchive, 60000);
             
             console.log("系統啟動成功！");
         } catch (e) {
             console.error("啟動失敗:", e);
-            alert("系統啟動發生錯誤 (可能是 LocalStorage 權限問題)，請查看 Console。");
-            if(dateStatus) dateStatus.textContent = "系統錯誤 (請按 F12 查看)";
+            if(dateStatus) dateStatus.textContent = "系統錯誤 (本機檔案權限不足)";
+            alert("請注意：直接開啟 HTML 檔案會導致瀏覽器封鎖資料庫權限。\n\n請將檔案上傳至 GitHub Pages，\n或使用 VS Code Live Server 開啟才能正常使用。");
         }
 
-        // 3. 輔助函式
         function getTodayStr() {
             const now = new Date();
             return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
@@ -49,11 +167,9 @@
         inputField.addEventListener('keydown', function (e) {
             // 只有按下 Enter (keyCode 13) 才觸發
             if (e.key === 'Enter' || e.keyCode === 13) {
-                e.preventDefault(); // 防止某些情況下的表單送出
+                e.preventDefault(); 
                 
                 let code = inputField.value.trim();
-                console.log("偵測到 Enter，輸入內容：", code); // 用於除錯
-
                 if (!code) return; 
 
                 // 自動轉大寫
@@ -91,7 +207,7 @@
         });
 
         // ==========================================
-        // 其他邏輯保持不變
+        // 其他邏輯
         // ==========================================
 
         function checkAutoArchive() {
@@ -209,7 +325,6 @@
                 localStorage.setItem('lastActiveDate', lastActiveDate); 
             } catch (e) {
                 console.error("儲存失敗:", e);
-                // 這裡不跳 alert 避免干擾操作，但會在 Console 報錯
             }
         }
 
@@ -254,3 +369,5 @@
             setTimeout(() => { window.print(); }, 100);
         }
     </script>
+</body>
+</html>
