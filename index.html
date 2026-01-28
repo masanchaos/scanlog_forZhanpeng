@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>物流掃描系統 (V9.4 測試版)</title>
+    <title>物流掃描系統 (V9.6 匯入警報版)</title>
     <style>
         /* ================= 一般介面 ================= */
         body { font-family: "Microsoft JhengHei", sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; text-align: center; color: #333; transition: background-color 0.1s;}
@@ -22,11 +22,26 @@
         .btn-print-a4 { background-color: #007bff; }
         .btn-print-thermal { background-color: #ffc107; color: #000; }
         .btn-clear { background-color: #6c757d; }
+        .btn-manual { background-color: #17a2b8; } /* 藍綠色 */
         
+        /* 手動輸入區 */
+        #manualArea { 
+            display: none; /* 預設隱藏 */
+            background-color: #f1f3f5; border: 2px dashed #17a2b8; padding: 20px; 
+            margin-bottom: 20px; border-radius: 10px;
+        }
+        #manualTextarea {
+            width: 90%; height: 150px; padding: 10px; font-size: 16px; 
+            font-family: monospace; border: 1px solid #ccc; border-radius: 5px;
+            resize: vertical; margin-bottom: 10px;
+        }
+        .btn-confirm-import { background-color: #17a2b8; }
+        .btn-cancel-import { background-color: #dc3545; }
+
         /* 測試區按鈕樣式 */
         .debug-area { margin-top: 30px; padding-top: 20px; border-top: 2px dashed #ccc; }
-        .btn-test-yesterday { background-color: #6f42c1; } /* 紫色 */
-        .btn-test-today { background-color: #fd7e14; } /* 橘色 */
+        .btn-test-yesterday { background-color: #6f42c1; } 
+        .btn-test-today { background-color: #fd7e14; } 
 
         button:hover { opacity: 0.9; transform: translateY(-1px); }
 
@@ -57,7 +72,7 @@
 
         /* ================= 🖨️ 列印共用樣式 ================= */
         @media print {
-            .no-print, #barcodeInput, .controls, #countDisplay, #errorOverlay, h2, #screenTable, .debug-area { display: none !important; }
+            .no-print, #barcodeInput, .controls, #countDisplay, #errorOverlay, h2, #screenTable, .debug-area, #manualArea { display: none !important; }
             #printContainer { display: block !important; }
             body { margin: 0; padding: 0; background: white; color: black; animation: none; }
         }
@@ -101,7 +116,7 @@
         <p style="font-size: 20px; margin-top: 30px;">(點擊畫面或按 Enter 繼續)</p>
     </div>
 
-    <h2 class="no-print">📦 物流掃描系統 (V9.4)</h2>
+    <h2 class="no-print">📦 物流掃描系統 (V9.6)</h2>
     <div class="no-print" style="color: #666; font-size: 14px; margin-bottom: 10px;">
         狀態：<span id="dateStatus">初始化中...</span>
     </div>
@@ -109,7 +124,20 @@
     <input type="text" id="barcodeInput" placeholder="請掃描 (限英數, Max 16)..." autofocus autocomplete="off">
     <div id="countDisplay" class="no-print" style="font-size: 20px; font-weight: bold; margin-bottom: 10px;">目前筆數：0</div>
 
+    <div id="manualArea" class="no-print">
+        <h3 style="margin-top:0; color: #17a2b8;">📝 手動製作簽收單 (批量匯入)</h3>
+        <p style="font-size: 14px; color: #666; margin-bottom: 5px;">請在下方貼上條碼列表 (一行一個)，支援自動過濾空白行：</p>
+        <textarea id="manualTextarea" placeholder="範例：
+D7153771026D
+D7153771240D..."></textarea>
+        <div>
+            <button onclick="confirmManualImport()" class="btn-confirm-import">✅ 開始匯入</button>
+            <button onclick="toggleManualMode()" class="btn-cancel-import">❌ 取消關閉</button>
+        </div>
+    </div>
+
     <div class="controls no-print">
+        <button onclick="toggleManualMode()" class="btn-manual">📝 手動輸入模式</button>
         <button onclick="downloadTxt()" class="btn-dl">📥 手動下載 Log</button>
         <button onclick="printReceipt('A4')" class="btn-print-a4">📄 列印 A4</button>
         <button onclick="printReceipt('Thermal')" class="btn-print-thermal">🏷️ 列印 100x150</button>
@@ -141,6 +169,8 @@
         let lastActiveDate = "";
         
         const inputField = document.getElementById('barcodeInput');
+        const manualArea = document.getElementById('manualArea');
+        const manualTextarea = document.getElementById('manualTextarea');
         const screenTableBody = document.querySelector('#screenTable tbody');
         const countDisplay = document.getElementById('countDisplay');
         const dateStatus = document.getElementById('dateStatus');
@@ -167,6 +197,74 @@
         function getTodayStr() {
             const now = new Date();
             return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
+        }
+
+        // 切換手動模式介面
+        function toggleManualMode() {
+            if (manualArea.style.display === 'none' || manualArea.style.display === '') {
+                manualArea.style.display = 'block';
+                manualTextarea.value = '';
+                manualTextarea.focus();
+                window.scrollTo(0, manualArea.offsetTop - 20);
+            } else {
+                manualArea.style.display = 'none';
+                inputField.focus();
+            }
+        }
+
+        // 執行手動匯入
+        function confirmManualImport() {
+            const rawText = manualTextarea.value;
+            if (!rawText.trim()) {
+                alert("請先貼上內容！");
+                return;
+            }
+
+            const lines = rawText.split(/\n/);
+            let successCount = 0;
+            let invalidLines = [];
+            let duplicateLines = [];
+
+            // 處理每一行
+            lines.forEach(line => {
+                let code = line.trim().toUpperCase();
+                if (!code) return; // 跳過空行
+
+                // 驗證格式 (英數, Max 16)
+                if (!/^[A-Z0-9]+$/.test(code) || code.length > 16) {
+                    invalidLines.push(code || "(特殊符號)");
+                } 
+                // 驗證重複
+                else if (logs.some(log => log.code === code)) {
+                    duplicateLines.push(code);
+                } 
+                // 成功新增
+                else {
+                    addLog(code);
+                    successCount++;
+                }
+            });
+
+            manualTextarea.value = ''; // 清空輸入框
+            toggleManualMode(); // 關閉手動介面
+
+            // 處理結果回報
+            if (invalidLines.length > 0) {
+                // 觸發紅光警報 (格式錯誤)
+                let detail = `成功匯入：${successCount} 筆\n`;
+                detail += `❌ 格式錯誤：${invalidLines.length} 筆\n`;
+                detail += `內容：${invalidLines.slice(0, 3).join(", ")}${invalidLines.length > 3 ? "..." : ""}\n`;
+                if(duplicateLines.length > 0) detail += `⚠️ 重複略過：${duplicateLines.length} 筆`;
+                
+                triggerError("匯入包含錯誤！", detail);
+
+            } else if (duplicateLines.length > 0) {
+                // 僅有重複，使用普通 Alert 提醒即可，不用嚇人
+                alert(`匯入完成！\n✅ 成功新增：${successCount} 筆\n⚠️ 重複略過：${duplicateLines.length} 筆`);
+            } else {
+                // 全部成功
+                alert(`匯入成功！\n✅ 共新增：${successCount} 筆`);
+            }
         }
 
         // 監聽 Enter (防冒泡)
@@ -200,12 +298,18 @@
 
         document.addEventListener('click', (e) => { 
             if (e.target.classList.contains('btn-del-single')) return;
-            if (e.target.closest('.debug-area')) return; // 點擊測試區不搶焦點
-            if (document.visibilityState === 'visible' && errorOverlay.style.display !== 'flex') inputField.focus(); 
+            if (e.target.closest('.debug-area')) return; 
+            if (e.target.closest('#manualArea')) return; // 點擊手動區不搶焦點
+            if (e.target.classList.contains('btn-manual')) return; // 點擊切換按鈕不搶焦點
+
+            // 只有在手動區隱藏時才自動聚焦
+            if (document.visibilityState === 'visible' && errorOverlay.style.display !== 'flex' && manualArea.style.display === 'none') {
+                inputField.focus(); 
+            }
         });
         
         inputField.addEventListener('blur', () => {
-            if(errorOverlay.style.display !== 'flex') setTimeout(() => inputField.focus(), 100);
+            if(errorOverlay.style.display !== 'flex' && manualArea.style.display === 'none') setTimeout(() => inputField.focus(), 100);
         });
 
         // 警報觸發
@@ -267,27 +371,20 @@
             }
         }
 
-        // 🔮 測試按鈕 A：模擬系統還停留在過去 (跨日)
         function testSimulateYesterday() {
             if (logs.length === 0) {
                 alert("測試前請先掃描幾筆資料，不然清空了也沒感覺喔！");
                 return;
             }
-            // 強制設定為一個過去的日期
             lastActiveDate = "2000-01-01";
             try { localStorage.setItem('lastActiveDate', lastActiveDate); } catch(e){}
-            
-            // 立即執行檢查
             checkAutoArchive();
         }
 
-        // 🛡️ 測試按鈕 B：模擬系統已經是最新狀態 (同日)
         function testSimulateToday() {
             const today = getTodayStr();
             lastActiveDate = today;
             try { localStorage.setItem('lastActiveDate', lastActiveDate); } catch(e){}
-            
-            // 立即執行檢查 (應該不會發生任何事)
             checkAutoArchive();
             alert(`已手動校正日期為 ${today}。\n(因為日期相同，系統不會觸發下載或清空)`);
         }
